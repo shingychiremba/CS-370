@@ -1,0 +1,371 @@
+Treasure Hunt Game Notebook
+Read and Review Your Starter Code
+The theme of this project is a popular treasure hunt game in which the player needs to find the treasure before the pirate does. While you will not be developing the entire game, you will write the part of the game that represents the intelligent agent, which is a pirate in this case. The pirate will try to find the optimal path to the treasure using deep Q-learning.
+
+You have been provided with two Python classes and this notebook to help you with this assignment. The first class, TreasureMaze.py, represents the environment, which includes a maze object defined as a matrix. The second class, GameExperience.py, stores the episodes – that is, all the states that come in between the initial state and the terminal state. This is later used by the agent for learning by experience, called "exploration". This notebook shows how to play a game. Your task is to complete the deep Q-learning implementation for which a skeleton implementation has been provided. The code blocs you will need to complete has #TODO as a header.
+
+First, read and review the next few code and instruction blocks to understand the code that you have been given.
+
+from __future__ import print_function
+import os, sys, time, datetime, json, random
+import numpy as np
+from keras.models import Sequential
+from keras.layers.core import Dense, Activation
+from keras.optimizers import SGD , Adam, RMSprop
+from keras.layers.advanced_activations import PReLU
+import matplotlib.pyplot as plt
+from TreasureMaze import TreasureMaze
+from GameExperience import GameExperience
+%matplotlib inline
+The following code block contains an 8x8 matrix that will be used as a maze object:
+
+maze = np.array([
+    [ 1.,  0.,  1.,  1.,  1.,  1.,  1.,  1.],
+    [ 1.,  0.,  1.,  1.,  1.,  0.,  1.,  1.],
+    [ 1.,  1.,  1.,  1.,  0.,  1.,  0.,  1.],
+    [ 1.,  1.,  1.,  0.,  1.,  1.,  1.,  1.],
+    [ 1.,  1.,  0.,  1.,  1.,  1.,  1.,  1.],
+    [ 1.,  1.,  1.,  0.,  1.,  0.,  0.,  0.],
+    [ 1.,  1.,  1.,  0.,  1.,  1.,  1.,  1.],
+    [ 1.,  1.,  1.,  1.,  0.,  1.,  1.,  1.]
+])
+This helper function allows a visual representation of the maze object:
+
+def show(qmaze):
+    plt.grid('on')
+    nrows, ncols = qmaze.maze.shape
+    ax = plt.gca()
+    ax.set_xticks(np.arange(0.5, nrows, 1))
+    ax.set_yticks(np.arange(0.5, ncols, 1))
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    canvas = np.copy(qmaze.maze)
+    for row,col in qmaze.visited:
+        canvas[row,col] = 0.6
+    pirate_row, pirate_col, _ = qmaze.state
+    canvas[pirate_row, pirate_col] = 0.3   # pirate cell
+    canvas[nrows-1, ncols-1] = 0.9 # treasure cell
+    img = plt.imshow(canvas, interpolation='none', cmap='gray')
+    return img
+The pirate agent can move in four directions: left, right, up, and down.
+
+While the agent primarily learns by experience through exploitation, often, the agent can choose to explore the environment to find previously undiscovered paths. This is called "exploration" and is defined by epsilon. This value is typically a lower value such as 0.1, which means for every ten attempts, the agent will attempt to learn by experience nine times and will randomly explore a new path one time. You are encouraged to try various values for the exploration factor and see how the algorithm performs.
+
+LEFT = 0
+UP = 1
+RIGHT = 2
+DOWN = 3
+​
+​
+# Exploration factor
+epsilon = 0.1
+​
+# Actions dictionary
+actions_dict = {
+    LEFT: 'left',
+    UP: 'up',
+    RIGHT: 'right',
+    DOWN: 'down',
+}
+​
+num_actions = len(actions_dict)
+​
+The sample code block and output below show creating a maze object and performing one action (DOWN), which returns the reward. The resulting updated environment is visualized.
+
+qmaze = TreasureMaze(maze)
+canvas, reward, game_over = qmaze.act(DOWN)
+print("reward=", reward)
+show(qmaze)
+reward= -0.04
+<matplotlib.image.AxesImage at 0x265a6507948>
+
+This function simulates a full game based on the provided trained model. The other parameters include the TreasureMaze object and the starting position of the pirate.
+
+def play_game(model, qmaze, pirate_cell):
+    qmaze.reset(pirate_cell)
+    envstate = qmaze.observe()
+    while True:
+        prev_envstate = envstate
+        # get next action
+        q = model.predict(prev_envstate)
+        action = np.argmax(q[0])
+​
+        # apply action, get rewards and new state
+        envstate, reward, game_status = qmaze.act(action)
+        if game_status == 'win':
+            return True
+        elif game_status == 'lose':
+            return False
+This function helps you to determine whether the pirate can win any game at all. If your maze is not well designed, the pirate may not win any game at all. In this case, your training would not yield any result. The provided maze in this notebook ensures that there is a path to win and you can run this method to check.
+
+def completion_check(model, qmaze):
+    for cell in qmaze.free_cells:
+        if not qmaze.valid_actions(cell):
+            return False
+        if not play_game(model, qmaze, cell):
+            return False
+    return True
+The code you have been given in this block will build the neural network model. Review the code and note the number of layers, as well as the activation, optimizer, and loss functions that are used to train the model.
+
+def build_model(maze):
+    model = Sequential()
+    model.add(Dense(maze.size, input_shape=(maze.size,)))
+    model.add(PReLU())
+    model.add(Dense(maze.size))
+    model.add(PReLU())
+    model.add(Dense(num_actions))
+    model.compile(optimizer='adam', loss='mse')
+    return model
+#TODO: Complete the Q-Training Algorithm Code Block
+This is your deep Q-learning implementation. The goal of your deep Q-learning implementation is to find the best possible navigation sequence that results in reaching the treasure cell while maximizing the reward. In your implementation, you need to determine the optimal number of epochs to achieve a 100% win rate.
+
+You will need to complete the section starting with #pseudocode. The pseudocode has been included for you.
+
+def qtrain(model, maze, **opt):
+​
+    # exploration factor
+    global epsilon 
+​
+    # number of epochs
+    n_epoch = opt.get('n_epoch', 15000)
+​
+    # maximum memory to store episodes
+    max_memory = opt.get('max_memory', 1000)
+​
+    # maximum data size for training
+    data_size = opt.get('data_size', 50)
+​
+    # start time
+    start_time = datetime.datetime.now()
+​
+    # Construct environment/game from numpy array: maze (see above)
+    qmaze = TreasureMaze(maze)
+​
+    # Initialize experience replay object
+    experience = GameExperience(model, max_memory=max_memory)
+    
+    win_history = []   # history of win/lose game
+    hsize = qmaze.maze.size//2   # history window size
+    win_rate = 0.0
+    imctr = 1
+    n_free_cells = len(qmaze.free_cells)
+    
+    # pseudocode:
+    # For each epoch:
+    #    Agent_cell = randomly select a free cell
+    #    Reset the maze with agent set to above position
+    #    Hint: Review the reset method in the TreasureMaze.py class.
+    #    envstate = Environment.current_state
+    #    Hint: Review the observe method in the TreasureMaze.py class.
+    #    While state is not game over:
+    #        previous_envstate = envstate
+    #        Action = randomly choose action (left, right, up, down) either by exploration or by exploitation
+    #        envstate, reward, game_status = qmaze.act(action)
+    #    Hint: Review the act method in the TreasureMaze.py class.
+    #        episode = [previous_envstate, action, reward, envstate, game_status]
+    #        Store episode in Experience replay object
+    #    Hint: Review the remember method in the GameExperience.py class.
+    #        Train neural network model and evaluate loss
+    #    Hint: Call GameExperience.get_data to retrieve training data (input and target) and pass to model.fit method 
+    #          to train the model. You can call model.evaluate to determine loss.
+    #    If the win rate is above the threshold and your model passes the completion check, that would be your epoch.
+​
+    
+​
+​
+    for epoch in range(n_epoch):
+        loss = 0.0
+        pirate_cell = random.choice(qmaze.free_cells)
+        qmaze.reset(pirate_cell)
+        game_over = False
+​
+        # get initial envstate (1d flattened canvas)
+        envstate = qmaze.observe()
+​
+        n_episodes = 0
+        while not game_over:
+            valid_actions = qmaze.valid_actions()
+            if not valid_actions: break
+            prev_envstate = envstate
+            
+            # Get next action
+            if np.random.rand() < epsilon:
+                action = random.choice(valid_actions)
+            else:
+                action = np.argmax(experience.predict(prev_envstate))
+​
+            # Apply action, get reward and new envstate
+            envstate, reward, game_status = qmaze.act(action)
+            if game_status == 'win':
+                win_history.append(1)
+                game_over = True
+            elif game_status == 'lose':
+                win_history.append(0)
+                game_over = True
+            else:
+                game_over = False
+​
+            # Store episode (experience)
+            episode = [prev_envstate, action, reward, envstate, game_over]
+            experience.remember(episode)
+            n_episodes += 1
+​
+            # Train neural network model
+            inputs, targets = experience.get_data(data_size=data_size)
+            h = model.fit(
+                inputs,
+                targets,
+                epochs=8,
+                batch_size=16,
+                verbose=0,
+            )
+            loss = model.evaluate(inputs, targets, verbose=0)
+​
+        if len(win_history) > hsize:
+            win_rate = sum(win_history[-hsize:]) / hsize
+    
+  
+​
+    #Print the epoch, loss, episodes, win count, and win rate for each epoch
+        dt = datetime.datetime.now() - start_time
+        t = format_time(dt.total_seconds())
+        template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | time: {}"
+        print(template.format(epoch, n_epoch-1, loss, n_episodes, sum(win_history), win_rate, t))
+        # We simply check if training has exhausted all free cells and if in all
+        # cases the agent won.
+        if win_rate > 0.9 : epsilon = 0.05
+        if sum(win_history[-hsize:]) == hsize and completion_check(model, qmaze):
+            print("Reached 100%% win rate at epoch: %d" % (epoch,))
+            break
+    
+    
+    # Determine the total time for training
+    dt = datetime.datetime.now() - start_time
+    seconds = dt.total_seconds()
+    t = format_time(seconds)
+​
+    print("n_epoch: %d, max_mem: %d, data: %d, time: %s" % (epoch, max_memory, data_size, t))
+    return seconds
+​
+# This is a small utility for printing readable time strings:
+def format_time(seconds):
+    if seconds < 400:
+        s = float(seconds)
+        return "%.1f seconds" % (s,)
+    elif seconds < 4000:
+        m = seconds / 60.0
+        return "%.2f minutes" % (m,)
+    else:
+        h = seconds / 3600.0
+        return "%.2f hours" % (h,)
+Test Your Model
+Now we will start testing the deep Q-learning implementation. To begin, select Cell, then Run All from the menu bar. This will run your notebook. As it runs, you should see output begin to appear beneath the next few cells. The code below creates an instance of TreasureMaze.
+
+qmaze = TreasureMaze(maze)
+show(qmaze)
+<matplotlib.image.AxesImage at 0x265a657b188>
+
+In the next code block, you will build your model and train it using deep Q-learning. Note: This step takes several minutes to fully run.
+
+model = build_model(maze)
+qtrain(model, maze, epochs=1000, max_memory=8*maze.size, data_size=32)
+Epoch: 000/14999 | Loss: 0.0385 | Episodes: 140 | Win count: 0 | Win rate: 0.000 | time: 26.9 seconds
+Epoch: 001/14999 | Loss: 0.0024 | Episodes: 144 | Win count: 0 | Win rate: 0.000 | time: 54.6 seconds
+Epoch: 002/14999 | Loss: 0.0033 | Episodes: 139 | Win count: 0 | Win rate: 0.000 | time: 83.3 seconds
+Epoch: 003/14999 | Loss: 0.0052 | Episodes: 136 | Win count: 0 | Win rate: 0.000 | time: 107.5 seconds
+Epoch: 004/14999 | Loss: 0.0012 | Episodes: 135 | Win count: 0 | Win rate: 0.000 | time: 121.7 seconds
+Epoch: 005/14999 | Loss: 0.0018 | Episodes: 139 | Win count: 0 | Win rate: 0.000 | time: 137.2 seconds
+Epoch: 006/14999 | Loss: 0.0016 | Episodes: 140 | Win count: 0 | Win rate: 0.000 | time: 152.5 seconds
+Epoch: 007/14999 | Loss: 0.0011 | Episodes: 144 | Win count: 0 | Win rate: 0.000 | time: 168.5 seconds
+Epoch: 008/14999 | Loss: 0.0015 | Episodes: 143 | Win count: 0 | Win rate: 0.000 | time: 183.5 seconds
+Epoch: 009/14999 | Loss: 0.0608 | Episodes: 144 | Win count: 0 | Win rate: 0.000 | time: 199.6 seconds
+Epoch: 010/14999 | Loss: 0.0034 | Episodes: 139 | Win count: 0 | Win rate: 0.000 | time: 214.2 seconds
+Epoch: 011/14999 | Loss: 0.0021 | Episodes: 38 | Win count: 1 | Win rate: 0.000 | time: 218.6 seconds
+Epoch: 012/14999 | Loss: 0.0040 | Episodes: 136 | Win count: 1 | Win rate: 0.000 | time: 233.8 seconds
+Epoch: 013/14999 | Loss: 0.0297 | Episodes: 139 | Win count: 1 | Win rate: 0.000 | time: 249.4 seconds
+Epoch: 014/14999 | Loss: 0.0008 | Episodes: 135 | Win count: 1 | Win rate: 0.000 | time: 265.6 seconds
+Epoch: 015/14999 | Loss: 0.0074 | Episodes: 2 | Win count: 2 | Win rate: 0.000 | time: 265.7 seconds
+Epoch: 016/14999 | Loss: 0.0110 | Episodes: 30 | Win count: 3 | Win rate: 0.000 | time: 268.8 seconds
+Epoch: 017/14999 | Loss: 0.0019 | Episodes: 138 | Win count: 3 | Win rate: 0.000 | time: 285.5 seconds
+Epoch: 018/14999 | Loss: 0.0017 | Episodes: 139 | Win count: 3 | Win rate: 0.000 | time: 301.2 seconds
+Epoch: 019/14999 | Loss: 0.0016 | Episodes: 138 | Win count: 3 | Win rate: 0.000 | time: 317.7 seconds
+Epoch: 020/14999 | Loss: 0.0015 | Episodes: 135 | Win count: 3 | Win rate: 0.000 | time: 332.4 seconds
+Epoch: 021/14999 | Loss: 0.0019 | Episodes: 140 | Win count: 3 | Win rate: 0.000 | time: 349.2 seconds
+Epoch: 022/14999 | Loss: 0.0034 | Episodes: 142 | Win count: 3 | Win rate: 0.000 | time: 364.5 seconds
+Epoch: 023/14999 | Loss: 0.0013 | Episodes: 59 | Win count: 4 | Win rate: 0.000 | time: 371.5 seconds
+Epoch: 024/14999 | Loss: 0.0027 | Episodes: 61 | Win count: 5 | Win rate: 0.000 | time: 378.4 seconds
+Epoch: 025/14999 | Loss: 0.0030 | Episodes: 2 | Win count: 6 | Win rate: 0.000 | time: 378.6 seconds
+Epoch: 026/14999 | Loss: 0.0168 | Episodes: 137 | Win count: 6 | Win rate: 0.000 | time: 393.1 seconds
+Epoch: 027/14999 | Loss: 0.0594 | Episodes: 14 | Win count: 7 | Win rate: 0.000 | time: 394.6 seconds
+Epoch: 028/14999 | Loss: 0.0545 | Episodes: 1 | Win count: 8 | Win rate: 0.000 | time: 394.7 seconds
+Epoch: 029/14999 | Loss: 0.0079 | Episodes: 17 | Win count: 9 | Win rate: 0.000 | time: 396.6 seconds
+Epoch: 030/14999 | Loss: 0.0042 | Episodes: 4 | Win count: 10 | Win rate: 0.000 | time: 397.0 seconds
+Epoch: 031/14999 | Loss: 0.0156 | Episodes: 12 | Win count: 11 | Win rate: 0.000 | time: 398.5 seconds
+Epoch: 032/14999 | Loss: 0.0193 | Episodes: 142 | Win count: 11 | Win rate: 0.344 | time: 6.92 minutes
+Epoch: 033/14999 | Loss: 0.0097 | Episodes: 144 | Win count: 11 | Win rate: 0.344 | time: 7.19 minutes
+Epoch: 034/14999 | Loss: 0.0088 | Episodes: 140 | Win count: 11 | Win rate: 0.344 | time: 7.44 minutes
+Epoch: 035/14999 | Loss: 0.0034 | Episodes: 1 | Win count: 12 | Win rate: 0.375 | time: 7.44 minutes
+Epoch: 036/14999 | Loss: 0.0037 | Episodes: 144 | Win count: 12 | Win rate: 0.375 | time: 7.72 minutes
+Epoch: 037/14999 | Loss: 0.0031 | Episodes: 141 | Win count: 12 | Win rate: 0.375 | time: 7.98 minutes
+Epoch: 038/14999 | Loss: 0.0492 | Episodes: 139 | Win count: 12 | Win rate: 0.375 | time: 8.25 minutes
+Epoch: 039/14999 | Loss: 0.0355 | Episodes: 38 | Win count: 13 | Win rate: 0.406 | time: 8.32 minutes
+Epoch: 040/14999 | Loss: 0.0014 | Episodes: 139 | Win count: 13 | Win rate: 0.406 | time: 8.57 minutes
+Epoch: 041/14999 | Loss: 0.0028 | Episodes: 82 | Win count: 14 | Win rate: 0.438 | time: 8.74 minutes
+Epoch: 042/14999 | Loss: 0.0117 | Episodes: 15 | Win count: 15 | Win rate: 0.469 | time: 8.77 minutes
+Epoch: 043/14999 | Loss: 0.0478 | Episodes: 13 | Win count: 16 | Win rate: 0.469 | time: 8.79 minutes
+Epoch: 044/14999 | Loss: 0.0072 | Episodes: 134 | Win count: 16 | Win rate: 0.469 | time: 9.03 minutes
+Epoch: 045/14999 | Loss: 0.0118 | Episodes: 137 | Win count: 17 | Win rate: 0.500 | time: 9.30 minutes
+Epoch: 046/14999 | Loss: 0.0053 | Episodes: 51 | Win count: 18 | Win rate: 0.531 | time: 9.39 minutes
+Epoch: 047/14999 | Loss: 0.0023 | Episodes: 138 | Win count: 18 | Win rate: 0.500 | time: 9.63 minutes
+Epoch: 048/14999 | Loss: 0.0017 | Episodes: 138 | Win count: 18 | Win rate: 0.469 | time: 9.93 minutes
+Epoch: 049/14999 | Loss: 0.0069 | Episodes: 97 | Win count: 19 | Win rate: 0.500 | time: 10.31 minutes
+Epoch: 050/14999 | Loss: 0.0035 | Episodes: 31 | Win count: 20 | Win rate: 0.531 | time: 10.41 minutes
+Epoch: 051/14999 | Loss: 0.0158 | Episodes: 40 | Win count: 21 | Win rate: 0.562 | time: 10.57 minutes
+Epoch: 052/14999 | Loss: 0.0131 | Episodes: 35 | Win count: 22 | Win rate: 0.594 | time: 10.70 minutes
+Epoch: 053/14999 | Loss: 0.0080 | Episodes: 36 | Win count: 23 | Win rate: 0.625 | time: 10.82 minutes
+Epoch: 054/14999 | Loss: 0.0016 | Episodes: 9 | Win count: 24 | Win rate: 0.656 | time: 10.85 minutes
+Epoch: 055/14999 | Loss: 0.0015 | Episodes: 49 | Win count: 25 | Win rate: 0.656 | time: 11.02 minutes
+Epoch: 056/14999 | Loss: 0.0049 | Episodes: 4 | Win count: 26 | Win rate: 0.656 | time: 11.03 minutes
+Epoch: 057/14999 | Loss: 0.0016 | Episodes: 10 | Win count: 27 | Win rate: 0.656 | time: 11.07 minutes
+Epoch: 058/14999 | Loss: 0.0045 | Episodes: 29 | Win count: 28 | Win rate: 0.688 | time: 11.16 minutes
+Epoch: 059/14999 | Loss: 0.0020 | Episodes: 27 | Win count: 29 | Win rate: 0.688 | time: 11.26 minutes
+Epoch: 060/14999 | Loss: 0.0015 | Episodes: 28 | Win count: 30 | Win rate: 0.688 | time: 11.36 minutes
+Epoch: 061/14999 | Loss: 0.0012 | Episodes: 2 | Win count: 31 | Win rate: 0.688 | time: 11.36 minutes
+Epoch: 062/14999 | Loss: 0.0013 | Episodes: 24 | Win count: 32 | Win rate: 0.688 | time: 11.45 minutes
+Epoch: 063/14999 | Loss: 0.0022 | Episodes: 42 | Win count: 33 | Win rate: 0.688 | time: 11.60 minutes
+Epoch: 064/14999 | Loss: 0.0017 | Episodes: 4 | Win count: 34 | Win rate: 0.719 | time: 11.62 minutes
+Epoch: 065/14999 | Loss: 0.0013 | Episodes: 24 | Win count: 35 | Win rate: 0.750 | time: 11.70 minutes
+Epoch: 066/14999 | Loss: 0.0011 | Episodes: 31 | Win count: 36 | Win rate: 0.781 | time: 11.81 minutes
+Epoch: 067/14999 | Loss: 0.0029 | Episodes: 23 | Win count: 37 | Win rate: 0.781 | time: 11.89 minutes
+Epoch: 068/14999 | Loss: 0.0006 | Episodes: 2 | Win count: 38 | Win rate: 0.812 | time: 11.90 minutes
+Epoch: 069/14999 | Loss: 0.0009 | Episodes: 27 | Win count: 39 | Win rate: 0.844 | time: 11.98 minutes
+Epoch: 070/14999 | Loss: 0.0010 | Episodes: 16 | Win count: 40 | Win rate: 0.875 | time: 12.04 minutes
+Epoch: 071/14999 | Loss: 0.0018 | Episodes: 25 | Win count: 41 | Win rate: 0.875 | time: 12.11 minutes
+Epoch: 072/14999 | Loss: 0.0012 | Episodes: 33 | Win count: 42 | Win rate: 0.906 | time: 12.23 minutes
+Epoch: 073/14999 | Loss: 0.0034 | Episodes: 45 | Win count: 43 | Win rate: 0.906 | time: 12.39 minutes
+Epoch: 074/14999 | Loss: 0.0014 | Episodes: 23 | Win count: 44 | Win rate: 0.906 | time: 12.47 minutes
+Epoch: 075/14999 | Loss: 0.0005 | Episodes: 18 | Win count: 45 | Win rate: 0.906 | time: 12.53 minutes
+Epoch: 076/14999 | Loss: 0.0016 | Episodes: 27 | Win count: 46 | Win rate: 0.938 | time: 12.63 minutes
+Epoch: 077/14999 | Loss: 0.0005 | Episodes: 17 | Win count: 47 | Win rate: 0.938 | time: 12.69 minutes
+Epoch: 078/14999 | Loss: 0.0004 | Episodes: 26 | Win count: 48 | Win rate: 0.938 | time: 12.78 minutes
+Epoch: 079/14999 | Loss: 0.0010 | Episodes: 12 | Win count: 49 | Win rate: 0.969 | time: 12.82 minutes
+Epoch: 080/14999 | Loss: 0.0007 | Episodes: 25 | Win count: 50 | Win rate: 1.000 | time: 12.91 minutes
+Reached 100% win rate at epoch: 80
+n_epoch: 80, max_mem: 512, data: 32, time: 12.93 minutes
+775.619746
+This cell will check to see if the model passes the completion check. Note: This could take several minutes.
+
+completion_check(model, qmaze)
+show(qmaze)
+<matplotlib.image.AxesImage at 0x265aca97888>
+
+This cell will test your model for one game. It will start the pirate at the top-left corner and run play_game. The agent should find a path from the starting position to the target (treasure). The treasure is located in the bottom-right corner.
+
+pirate_start = (0, 0)
+play_game(model, qmaze, pirate_start)
+show(qmaze)
+<matplotlib.image.AxesImage at 0x265ad0b2ec8>
+
+Save and Submit Your Work
+After you have finished creating the code for your notebook, save your work. Make sure that your notebook contains your name in the filename (e.g. Doe_Jane_ProjectTwo.ipynb). This will help your instructor access and grade your work easily. Download a copy of your IPYNB file and submit it to Brightspace. Refer to the Jupyter Notebook in Apporto Tutorial if you need help with these tasks.
+
